@@ -5,24 +5,24 @@ using UnityEngine;
 
 public class Player : Character {
 
-    private Character target;
+    // TODO: take deltaTime into account for movement
 
-    CameraRaycaster cr;
-    CameraHolder ch;
+    private Character target; // enemy or npc selected
 
-    bool directMovement = true;
-    bool autoRun = false;
-    bool characterRotating = false;
-    bool LMBPressed = false;
-    bool RMBPressed = false;
-    bool inCombat = false;
+    CameraRaycaster cr; // raycaster used for detecting clicked objects/characters
+    CameraHolder ch; // parent of camera, used to more easily rotate camera around character
 
-    float clickCounterLMB = 0;
-    float clickCounterRMB = 0;
+    bool directMovement = true; // whether or not WASD movement is being used
+    bool autoRun = false; // whether or not auto run is active
+    bool characterRotating = false; // whether or not character is currently rotating
+    bool LMBPressed = false; // whether or not the left mouse button is pressed
+    bool RMBPressed = false; // whether or not the right mouse button is pressed
+    bool inCombat = false; // whether or not player is in combat
+    bool standingStill = true; // whether or not player is standing still
 
-    float autoAttackRange = 10;
+    float autoAttackRange = 2; // distance at which player starts auto attacking target in combat
 
-    // Use this for initialization
+    // initialization
     void Start()
     {
         animator = GetComponent<Animator>();
@@ -31,69 +31,34 @@ public class Player : Character {
         cr.onMouseOverEnemy += OnMouseOverEnemy;
     }
 
-    // Update is called once per frame
+    // once per frame
     void Update ()
     {
         MouseInput();
         if (autoRun) AutoRun();
-        if (directMovement) DirectMovement();
+        if (directMovement) DirectMovement(); // use mouse keys for movement
+        if (Input.GetKeyDown(KeyCode.Space)) animator.SetTrigger("jump"); // jump
     }
 
+
+
+/////////////////////////////////////////////////////////////////////
+//                              INPUT                              //
+/////////////////////////////////////////////////////////////////////
+
+
+    /*
+     * handles all input from the mouse
+     */
     private void MouseInput()
     {
         MovementMouseInput();
     }
 
-    private void OnMouseOverEnemy(Enemy enemy)
-    {
-        if (Input.GetMouseButtonDown(0)) SelectNewTarget(enemy);
-        if (Input.GetMouseButtonDown(1)) InteractNewTarget(enemy);
-    }
 
-    private void SelectNewTarget(Enemy enemy)
-    {
-        target = enemy;
-        print("Selected " + enemy);
-    }
-
-    private void InteractNewTarget(Enemy enemy)
-    {
-        target = enemy;
-        StartCoroutine("StartCombat");
-        print("Interacted " + enemy);
-    }
-
-    IEnumerator StartCombat()
-    {
-        inCombat = true;
-        while (inCombat)
-        {
-            print("in combat");
-            if (target)
-            {
-                if (DistanceTo(target) < autoAttackRange)
-                {
-                    target.TakeDamage(10, this);
-                    yield return new WaitForSeconds(1);
-                }
-                else
-                {
-                    yield return null;
-                }
-            }
-            else
-            {
-                yield return null;
-            }
-            
-        }
-    }
-
-    public void ClearTarget()
-    {
-        target = null;
-    }
-
+    /*
+     * handles all mouse input involving movement
+     */
     private void MovementMouseInput()
     {
         if (autoRun) directMovement = false;
@@ -147,45 +112,158 @@ public class Player : Character {
                 autoRun = false;
                 directMovement = true;
             }
+
+        }
+    }
+
+
+    /*
+     * called whenever mouse passes over an enemy
+     * clicks will target that enemy
+     */
+    private void OnMouseOverEnemy(Enemy enemy)
+    {
+        if (Input.GetMouseButtonDown(0)) SelectNewTarget(enemy);
+        if (Input.GetMouseButtonDown(1)) InteractNewTarget(enemy);
+    }
+
+
+
+/////////////////////////////////////////////////////////////////////
+//                              COMBAT                             //
+/////////////////////////////////////////////////////////////////////
+
+
+    /*
+     * select the clicked enemy as a target, but do not attack
+     */
+    private void SelectNewTarget(Enemy enemy)
+    {
+        target = enemy;
+        print("Selected " + enemy);
+    }
+
+
+    /*
+     * select the clicked enemy as a target, and attack
+     */
+    private void InteractNewTarget(Enemy enemy)
+    {
+        target = enemy;
+        StartCoroutine("StartCombat");
+        print("Interacted " + enemy);
+    }
+
+
+    /*
+     * combat loop
+     */
+    IEnumerator StartCombat()
+    {
+        inCombat = true;
+        while (inCombat)
+        {
+            print("in combat");
+            if (target)
+            {
+                if (DistanceTo(target) < autoAttackRange)
+                {
+                    animator.SetTrigger("attack");
+                    target.TakeDamage(10, this);
+                    yield return new WaitForSeconds(1);
+                }
+                else
+                {
+                    yield return null;
+                }
+            }
+            else
+            {
+                yield return null;
+            }
             
         }
     }
 
+
+    /*
+     * deselect the current target
+     */
+    public void ClearTarget()
+    {
+        target = null;
+    }
+
+
+
+/////////////////////////////////////////////////////////////////////
+//                             MOVEMENT                            //
+/////////////////////////////////////////////////////////////////////
+
+
+    /*
+     * handles WASD movement
+     */
     private void DirectMovement()
     {
         float strafe = Input.GetAxis("Horizontal");
         float forward = Input.GetAxis("Vertical");
+        if (strafe + forward == 0) standingStill = true;
+        else standingStill = false;
         Move(strafe, forward);
         float yaw = Input.GetAxis("Rotational") * 5;
         RotateCharacter(yaw);
     }
 
-    //TODO: partial rotation animation
+
+    /*
+     * handles rotation of the entire character (also rotates camera in sync)
+     * 
+     * TODO: partial rotation animation
+     */
     private void CharacterRotation()
     {
-        CameraRotationYaw();
-
-        float cameraYaw = ch.transform.eulerAngles.y;
-        float characterYaw = this.transform.eulerAngles.y;
-
-        float a = Math.Abs(cameraYaw - characterYaw);
-
-        if (a >= 90 && a <= 270)
+        if (!standingStill)
         {
-            float b = ch.transform.localEulerAngles.y;
-            if(b >= 0 && b <= 180)
+            Vector3 newVector = this.transform.eulerAngles;
+            newVector.y = ch.transform.eulerAngles.y;
+            this.transform.eulerAngles = newVector;
+            ch.ResetRotationYaw();
+
+            float yaw = Input.GetAxis("Mouse X") * 5;
+            RotateCharacter(yaw);
+        }
+        else
+        {
+            CameraRotationYaw();
+
+            float cameraYaw = ch.transform.eulerAngles.y;
+            float characterYaw = this.transform.eulerAngles.y;
+
+            float a = Math.Abs(cameraYaw - characterYaw);
+
+            if (a >= 90 && a <= 270)
             {
-                ch.RotateCamera(-20);
-                RotateCharacter(20);
-            }
-            else
-            {
-                ch.RotateCamera(20);
-                RotateCharacter(-20);
+                float b = ch.transform.localEulerAngles.y;
+                if (b >= 0 && b <= 180)
+                {
+                    ch.RotateCamera(-20);
+                    RotateCharacter(20);
+                }
+                else
+                {
+                    ch.RotateCamera(20);
+                    RotateCharacter(-20);
+                }
             }
         }
+        
     }
 
+
+    /*
+     * handles camera rotation around y axis (independent of character rotation)
+     */
     private void CameraRotationYaw()
     {
         float yaw = Input.GetAxis("Mouse X") * 5;
@@ -194,6 +272,10 @@ public class Player : Character {
         ch.transform.eulerAngles = newVector;
     }
 
+
+    /*
+     * handles camera rotation around x axis (independent of character rotation)
+     */
     private void CameraRotationPitch()
     {
         float pitch = Input.GetAxis("Mouse Y") * -5;
@@ -202,17 +284,26 @@ public class Player : Character {
         ch.transform.eulerAngles = newVector;
     }
 
+
+    /*
+     * controls movement while both mouse buttons are pressed
+     */
     private void TwoButtonRun()
     {
+        standingStill = false;
         autoRun = false;
-        float yaw = Input.GetAxis("Mouse X") * 5;
-        RotateCharacter(yaw);
+        CharacterRotation();
         float strafe = Input.GetAxis("Horizontal");
         Move(strafe, 1);
     }
 
+
+    /*
+     * automatically moves the character forward while autoRun is active
+     */
     private void AutoRun()
     {
+        standingStill = false;
         if (Input.GetKey(KeyCode.W)
             || Input.GetKey(KeyCode.S)
             || Input.GetKey(KeyCode.UpArrow)
